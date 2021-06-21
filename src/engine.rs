@@ -7,7 +7,7 @@ use crate::input::InputRecord;
 
 /// A client ID
 #[derive(PartialEq,Debug)]
-struct ClientId(u16);
+pub struct ClientId(pub u16);
 
 /// A globally-unique transaction ID
 #[derive(PartialEq,Debug)]
@@ -15,7 +15,7 @@ struct TxId(u32);
 
 /// A deposit or withdrawal amount; expected precision is 4 places past the decimal
 #[derive(PartialEq,Debug)]
-struct Amount(f32);
+pub struct Amount(pub f32);
 
 /// A transaction that applies to a client account
 #[derive(PartialEq,Debug)]
