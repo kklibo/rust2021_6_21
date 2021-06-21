@@ -1,6 +1,6 @@
 //! The transaction processing engine
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::error::Error;
 
 use crate::input::InputRecord;
@@ -8,7 +8,7 @@ use crate::account_state::AccountState;
 
 
 /// A client ID
-#[derive(Copy,Clone,Eq,PartialEq,Hash,Debug)]
+#[derive(Copy,Clone,Eq,PartialEq,Ord,PartialOrd,Debug)]
 pub struct ClientId(pub u16);
 
 /// A globally-unique transaction ID
@@ -85,7 +85,7 @@ fn process_account_transactions(client_id: ClientId, transactions: &Vec<Transact
 pub fn run(records: &Vec<InputRecord>) -> Vec<AccountState> {
 
     //maps a client ID to an ordered sequence of transactions on its account
-    let mut account_histories = HashMap::<ClientId, Vec<Transaction>>::new();
+    let mut account_histories = BTreeMap::<ClientId, Vec<Transaction>>::new();
 
     for record in records {
 
