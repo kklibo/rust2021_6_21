@@ -1,5 +1,6 @@
 //! The transaction processing engine
 
+use std::collections::HashMap;
 use std::error::Error;
 
 use crate::input::InputRecord;
@@ -7,7 +8,7 @@ use crate::account_state::AccountState;
 
 
 /// A client ID
-#[derive(Copy,Clone,PartialEq,Debug)]
+#[derive(Copy,Clone,Eq,PartialEq,Hash,Debug)]
 pub struct ClientId(pub u16);
 
 /// A globally-unique transaction ID
@@ -79,6 +80,34 @@ fn process_account_transactions(client_id: ClientId, transactions: &Vec<Transact
     account_state
 }
 
+///Processes a history of transactions:
+/// calculates and returns the resulting state of each client account
+pub fn run(records: &Vec<InputRecord>) -> Vec<AccountState> {
+
+    //maps a client ID to an ordered sequence of transactions on its account
+    let mut account_histories = HashMap::<ClientId, Vec<Transaction>>::new();
+
+    for record in records {
+
+        match parse_record(record) {
+            Ok((client_id, transaction)) => {
+
+                //add this transaction to the client ID's transaction sequence
+                account_histories.entry(client_id).or_default().push(transaction);
+            },
+
+            //The spec doesn't specify an error-reporting channel. What could be done here?
+            // For now, just ignore invalid records.
+            Err(_) => {},
+        }
+    }
+
+    //process the histories of the client accounts:
+    // generate an AccountState for each
+    account_histories.iter().map(|(&client_id, transactions)| {
+        process_account_transactions(client_id, transactions)
+    }).collect()
+}
 
 
 #[cfg(test)]
@@ -179,6 +208,58 @@ mod test {
             };
 
             let result = process_account_transactions(client_id, &transactions);
+
+            assert_eq!(result, expected);
+        }
+    }
+
+
+    #[test]
+    fn run_test() {
+
+        //no records
+        {
+            let records = vec![];
+            let expected = vec![];
+
+            let result = run(&records);
+
+            assert_eq!(result, expected);
+        }
+
+        //one client + invalid record
+        {
+            let records = vec![
+                InputRecord{r#type: "".to_string(), client: 1, tx: 1, amount: None},
+                InputRecord{r#type: "deposit".to_string(), client: 1, tx: 2, amount: Some(10.0)},
+                InputRecord{r#type: "withdrawal".to_string(), client: 1, tx: 3, amount: Some(2.0)},
+            ];
+            let expected = vec![
+                AccountState{client_id: ClientId(1), available: Amount(8.0), held: Amount(0.0), locked: false},
+            ];
+
+            let result = run(&records);
+
+            assert_eq!(result, expected);
+        }
+
+        //three clients + canceled overdrawing withdrawal
+        {
+            let records = vec![
+                InputRecord{r#type: "deposit".to_string(), client: 1, tx: 616, amount: Some(10.0)},
+                InputRecord{r#type: "deposit".to_string(), client: 2, tx: 525, amount: Some(10.0)},
+                InputRecord{r#type: "deposit".to_string(), client: 3, tx: 434, amount: Some(10.0)},
+                InputRecord{r#type: "withdrawal".to_string(), client: 3, tx: 343, amount: Some(2.0)},
+                InputRecord{r#type: "withdrawal".to_string(), client: 2, tx: 252, amount: Some(8.0)},
+                InputRecord{r#type: "withdrawal".to_string(), client: 1, tx: 161, amount: Some(15.0)},
+            ];
+            let expected = vec![
+                AccountState{client_id: ClientId(1), available: Amount(10.0), held: Amount(0.0), locked: false},
+                AccountState{client_id: ClientId(2), available: Amount(2.0), held: Amount(0.0), locked: false},
+                AccountState{client_id: ClientId(3), available: Amount(8.0), held: Amount(0.0), locked: false},
+            ];
+
+            let result = run(&records);
 
             assert_eq!(result, expected);
         }
