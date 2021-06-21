@@ -15,7 +15,7 @@ pub struct InputRecord {
 }
 
 ///Parses a CSV string into InputRecords
-fn parse_csv(input_csv: String) -> Result<Vec<InputRecord>, Box<dyn Error>> {
+pub fn parse_csv(input_csv: String) -> Result<Vec<InputRecord>, Box<dyn Error>> {
 
     let mut reader = ReaderBuilder::new()
             .flexible(true)
