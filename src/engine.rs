@@ -3,18 +3,19 @@
 use std::error::Error;
 
 use crate::input::InputRecord;
+use crate::account_state::AccountState;
 
 
 /// A client ID
-#[derive(PartialEq,Debug)]
+#[derive(Copy,Clone,PartialEq,Debug)]
 pub struct ClientId(pub u16);
 
 /// A globally-unique transaction ID
-#[derive(PartialEq,Debug)]
+#[derive(Copy,Clone,PartialEq,Debug)]
 struct TxId(u32);
 
 /// A deposit or withdrawal amount; expected precision is 4 places past the decimal
-#[derive(PartialEq,Debug)]
+#[derive(Copy,Clone,PartialEq,Debug)]
 pub struct Amount(pub f32);
 
 /// A transaction that applies to a client account
@@ -42,6 +43,42 @@ fn parse_record(record: &InputRecord) -> Result<(ClientId, Transaction), Box<dyn
         _ => Err("invalid input record".into())
     }
 }
+
+/// Processes an account's transaction history and returns its current state.
+/// Note: `client_id` is only used to create the AccountState:
+/// all `transactions` will be processed.
+fn process_account_transactions(client_id: ClientId, transactions: &Vec<Transaction>) -> AccountState {
+
+    let mut account_state = AccountState {
+        client_id,
+        available: Amount(0.0),
+        held: Amount(0.0),
+        locked: false
+    };
+
+    for transaction in transactions {
+
+        match transaction {
+
+            Transaction::Deposit(_tx_id, amount) => {
+
+                //deposits always succeed
+                account_state.available.0 += amount.0;
+            },
+
+            Transaction::Withdrawal(_tx_id, amount) => {
+
+                //withdrawals only happen if enough funds are available
+                if account_state.available.0 >= amount.0 {
+                    account_state.available.0 -= amount.0;
+                }
+            },
+        }
+    }
+
+    account_state
+}
+
 
 
 #[cfg(test)]
@@ -81,6 +118,69 @@ mod test {
             let result = parse_record(&record);
 
             assert!(matches!(result, Err(_)));
+        }
+    }
+
+    #[test]
+    fn process_account_transactions_test() {
+
+        let client_id = ClientId(1);
+
+        //no transactions
+        {
+            let transactions = vec![];
+
+            let expected = AccountState {
+                client_id,
+                available: Amount(0.0),
+                held: Amount(0.0),
+                locked: false
+            };
+
+            let result = process_account_transactions(client_id, &transactions);
+
+            assert_eq!(result, expected);
+        }
+
+        //deposits + withdrawals (all successful)
+        {
+            let transactions = vec![
+                Transaction::Deposit(TxId(1), Amount(10.0)),
+                Transaction::Deposit(TxId(2), Amount(1.0)),
+                Transaction::Withdrawal(TxId(3), Amount(2.0)),
+                Transaction::Deposit(TxId(4), Amount(1.0)),
+            ];
+
+            let expected = AccountState {
+                client_id,
+                available: Amount(10.0),
+                held: Amount(0.0),
+                locked: false
+            };
+
+            let result = process_account_transactions(client_id, &transactions);
+
+            assert_eq!(result, expected);
+        }
+
+        //overdrawing withdrawal rejected
+        {
+            let transactions = vec![
+                Transaction::Deposit(TxId(1), Amount(1.0)),
+                Transaction::Withdrawal(TxId(2), Amount(2.0)),
+                Transaction::Deposit(TxId(3), Amount(1.0)),
+            ];
+
+            let expected = AccountState {
+                client_id,
+                available: Amount(2.0),
+                held: Amount(0.0),
+                locked: false
+            };
+
+            let result = process_account_transactions(client_id, &transactions);
+
+            assert_eq!(result, expected);
         }
     }
 }
