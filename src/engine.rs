@@ -60,14 +60,9 @@ fn parse_record(record: &InputRecord) -> Result<(ClientId, Transaction), Box<dyn
 /// Processes an account's transaction history and returns its current state.
 /// Note: `client_id` is only used to create the AccountState:
 /// all `transactions` will be processed.
-fn process_account_transactions(client_id: ClientId, transactions: &Vec<Transaction>) -> AccountState {
+fn process_account_transactions(client_id: ClientId, transactions: &Vec<Transaction>) -> Option<AccountState> {
 
-    let mut account_state = AccountState {
-        client_id,
-        available: Amount(0.0),
-        held: Amount(0.0),
-        locked: false
-    };
+    let mut account_state: Option<AccountState> = None;
 
     //for existing deposits: transaction IDs mapped to amounts
     let mut deposit_amounts = HashMap::<TxId, Amount>::new();
@@ -76,6 +71,35 @@ fn process_account_transactions(client_id: ClientId, transactions: &Vec<Transact
     let mut disputed_deposit_ids = HashSet::<TxId>::new();
 
     for transaction in transactions {
+
+        // Create the account state on the first deposit:
+        // No other transactions are valid until the account is opened by a deposit.
+        //
+        // Note: this handling prevents an edge case bug in which an un-deposited account
+        // could erroneously appear in the output after receiving non-deposit transactions:
+        // such an account should be considered unopened, and therefore invalid.
+        // In this function, a client account that never receives a deposit will return 'None'.
+        if let None = account_state {
+            if let Transaction::Deposit(_,_) = transaction {
+
+                //this is the first deposit, so the account exists now
+                account_state = Some(AccountState {
+                    client_id,
+                    available: Amount(0.0),
+                    held: Amount(0.0),
+                    locked: false
+                });
+            }
+        }
+
+        let account_state = match account_state {
+            Some(ref mut a) => a,
+            None => {
+                //still waiting for the first deposit:
+                // don't process this transaction, it predates its target account
+                continue;
+            }
+        };
 
         match transaction {
 
@@ -143,8 +167,8 @@ fn process_account_transactions(client_id: ClientId, transactions: &Vec<Transact
                         account_state.locked = true;
 
                         //now that the client account is locked, no more actions are possible:
-                        // return the current account state, ignoring all remaining transactions
-                        return account_state;
+                        //ignore all remaining transactions
+                        break;
                     }
                 }
             },
@@ -179,7 +203,7 @@ pub fn run(records: &Vec<InputRecord>) -> Vec<AccountState> {
 
     //process the histories of the client accounts:
     // generate an AccountState for each
-    account_histories.iter().map(|(&client_id, transactions)| {
+    account_histories.iter().filter_map(|(&client_id, transactions)| {
         process_account_transactions(client_id, transactions)
     }).collect()
 }
@@ -266,12 +290,7 @@ mod test {
         {
             let transactions = vec![];
 
-            let expected = AccountState {
-                client_id,
-                available: Amount(0.0),
-                held: Amount(0.0),
-                locked: false
-            };
+            let expected = None;
 
             let result = process_account_transactions(client_id, &transactions);
 
@@ -287,12 +306,12 @@ mod test {
                 Transaction::Deposit(TxId(4), Amount(1.0)),
             ];
 
-            let expected = AccountState {
+            let expected = Some(AccountState {
                 client_id,
                 available: Amount(10.0),
                 held: Amount(0.0),
                 locked: false
-            };
+            });
 
             let result = process_account_transactions(client_id, &transactions);
 
@@ -307,12 +326,12 @@ mod test {
                 Transaction::Deposit(TxId(3), Amount(1.0)),
             ];
 
-            let expected = AccountState {
+            let expected = Some(AccountState {
                 client_id,
                 available: Amount(2.0),
                 held: Amount(0.0),
                 locked: false
-            };
+            });
 
             let result = process_account_transactions(client_id, &transactions);
 
@@ -326,12 +345,12 @@ mod test {
                 Transaction::Dispute(TxId(1)),
             ];
 
-            let expected = AccountState {
+            let expected = Some(AccountState {
                 client_id,
                 available: Amount(0.0),
                 held: Amount(10.0),
                 locked: false
-            };
+            });
 
             let result = process_account_transactions(client_id, &transactions);
 
@@ -346,12 +365,12 @@ mod test {
                 Transaction::Resolve(TxId(1)),
             ];
 
-            let expected = AccountState {
+            let expected = Some(AccountState {
                 client_id,
                 available: Amount(10.0),
                 held: Amount(0.0),
                 locked: false
-            };
+            });
 
             let result = process_account_transactions(client_id, &transactions);
 
@@ -371,12 +390,12 @@ mod test {
                 Transaction::Withdrawal(TxId(1), Amount(5.0)),
             ];
 
-            let expected = AccountState {
+            let expected = Some(AccountState {
                 client_id,
                 available: Amount(0.0),
                 held: Amount(0.0),
                 locked: true
-            };
+            });
 
             let result = process_account_transactions(client_id, &transactions);
 
@@ -395,12 +414,12 @@ mod test {
                 Transaction::Deposit(TxId(1), Amount(10.0)),
             ];
 
-            let expected = AccountState {
+            let expected = Some(AccountState {
                 client_id,
                 available: Amount(10.0),
                 held: Amount(0.0),
                 locked: false
-            };
+            });
 
             let result = process_account_transactions(client_id, &transactions);
 
@@ -420,12 +439,12 @@ mod test {
                 Transaction::Dispute(TxId(1)),
             ];
 
-            let expected = AccountState {
+            let expected = Some(AccountState {
                 client_id,
                 available: Amount(0.0),
                 held: Amount(10.0),
                 locked: false
-            };
+            });
 
             let result = process_account_transactions(client_id, &transactions);
 
@@ -525,8 +544,7 @@ mod test {
                 InputRecord{r#type: "dispute".to_string(), client: 2, tx: 616, amount: None},
 
                 //non-existent client
-            //todo: re-add this
-            //    InputRecord{r#type: "dispute".to_string(), client: 5, tx: 525, amount: None},
+                InputRecord{r#type: "dispute".to_string(), client: 5, tx: 525, amount: None},
 
                 //valid
                 InputRecord{r#type: "dispute".to_string(), client: 3, tx: 434, amount: None},
