@@ -60,7 +60,7 @@ fn parse_record(record: &InputRecord) -> Result<(ClientId, Transaction), Box<dyn
 /// Processes an account's transaction history and returns its current state.
 /// Note: `client_id` is only used to create the AccountState:
 /// all `transactions` will be processed.
-fn process_account_transactions(client_id: ClientId, transactions: &Vec<Transaction>) -> Option<AccountState> {
+fn process_account_transactions(client_id: ClientId, transactions: &[Transaction]) -> Option<AccountState> {
 
     let mut account_state: Option<AccountState> = None;
 
@@ -79,7 +79,7 @@ fn process_account_transactions(client_id: ClientId, transactions: &Vec<Transact
         // could erroneously appear in the output after receiving non-deposit transactions:
         // such an account should be considered unopened, and therefore invalid.
         // In this function, a client account that never receives a deposit will return 'None'.
-        if let None = account_state {
+        if account_state.is_none() {
             if let Transaction::Deposit(_,_) = transaction {
 
                 //this is the first deposit, so the account exists now
@@ -101,9 +101,9 @@ fn process_account_transactions(client_id: ClientId, transactions: &Vec<Transact
             }
         };
 
-        match transaction {
+        match *transaction {
 
-            &Transaction::Deposit(tx_id, amount) => {
+            Transaction::Deposit(tx_id, amount) => {
 
                 //deposits always succeed
                 account_state.available.0 += amount.0;
@@ -113,7 +113,7 @@ fn process_account_transactions(client_id: ClientId, transactions: &Vec<Transact
                 deposit_amounts.insert(tx_id, amount);
             },
 
-            &Transaction::Withdrawal(_tx_id, amount) => {
+            Transaction::Withdrawal(_tx_id, amount) => {
 
                 //withdrawals only happen if enough funds are available
                 if account_state.available.0 >= amount.0 {
@@ -121,7 +121,7 @@ fn process_account_transactions(client_id: ClientId, transactions: &Vec<Transact
                 }
             },
 
-            &Transaction::Dispute(tx_id) => {
+            Transaction::Dispute(tx_id) => {
 
                 //disputes only happen on existing deposits
                 if let Some(&amount) = deposit_amounts.get(&tx_id) {
@@ -136,7 +136,7 @@ fn process_account_transactions(client_id: ClientId, transactions: &Vec<Transact
                 }
             },
 
-            &Transaction::Resolve(tx_id) => {
+            Transaction::Resolve(tx_id) => {
 
                 //resolve only applies to an existing disputed deposit
                 if let Some(&amount) = deposit_amounts.get(&tx_id) {
@@ -153,7 +153,7 @@ fn process_account_transactions(client_id: ClientId, transactions: &Vec<Transact
                 }
             },
 
-            &Transaction::Chargeback(tx_id) => {
+            Transaction::Chargeback(tx_id) => {
 
                 //chargeback only applies to an existing disputed deposit
                 if let Some(&amount) = deposit_amounts.get(&tx_id) {
@@ -181,7 +181,7 @@ fn process_account_transactions(client_id: ClientId, transactions: &Vec<Transact
 
 ///Processes a history of transactions:
 /// calculates and returns the resulting state of each client account
-pub fn run(records: &Vec<InputRecord>) -> Vec<AccountState> {
+pub fn run(records: &[InputRecord]) -> Vec<AccountState> {
 
     //maps a client ID to an ordered sequence of transactions on its account
     let mut account_histories = BTreeMap::<ClientId, Vec<Transaction>>::new();
