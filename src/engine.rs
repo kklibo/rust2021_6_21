@@ -297,6 +297,21 @@ mod test {
             assert_eq!(result, expected);
         }
 
+        //account was never opened by a deposit
+        {
+            let transactions = vec![
+                Transaction::Withdrawal(TxId(3), Amount(2.0)),
+                Transaction::Dispute(TxId(3)),
+                Transaction::Resolve(TxId(3)),
+            ];
+
+            let expected = None;
+
+            let result = process_account_transactions(client_id, &transactions);
+
+            assert_eq!(result, expected);
+        }
+
         //deposits + withdrawals (all successful)
         {
             let transactions = vec![
@@ -357,6 +372,47 @@ mod test {
             assert_eq!(result, expected);
         }
 
+        //pending dispute with negative balance
+        {
+            let transactions = vec![
+                Transaction::Deposit(TxId(1), Amount(10.0)),
+                Transaction::Withdrawal(TxId(1), Amount(8.0)),
+                Transaction::Dispute(TxId(1)),
+            ];
+
+            let expected = Some(AccountState {
+                client_id,
+                available: Amount(-8.0),
+                held: Amount(10.0),
+                locked: false
+            });
+
+            let result = process_account_transactions(client_id, &transactions);
+
+            assert_eq!(result, expected);
+        }
+
+        //chargeback resulting in negative balance
+        {
+            let transactions = vec![
+                Transaction::Deposit(TxId(1), Amount(10.0)),
+                Transaction::Withdrawal(TxId(1), Amount(8.0)),
+                Transaction::Dispute(TxId(1)),
+                Transaction::Chargeback(TxId(1)),
+            ];
+
+            let expected = Some(AccountState {
+                client_id,
+                available: Amount(-8.0),
+                held: Amount(0.0),
+                locked: true
+            });
+
+            let result = process_account_transactions(client_id, &transactions);
+
+            assert_eq!(result, expected);
+        }
+
         //resolved dispute
         {
             let transactions = vec![
@@ -368,6 +424,32 @@ mod test {
             let expected = Some(AccountState {
                 client_id,
                 available: Amount(10.0),
+                held: Amount(0.0),
+                locked: false
+            });
+
+            let result = process_account_transactions(client_id, &transactions);
+
+            assert_eq!(result, expected);
+        }
+
+        //multiple resolved disputes with interlaced deposits
+        {
+            let transactions = vec![
+                Transaction::Deposit(TxId(1), Amount(100.0)),
+                Transaction::Dispute(TxId(1)),
+                Transaction::Resolve(TxId(1)),
+                Transaction::Dispute(TxId(1)),
+                Transaction::Deposit(TxId(2), Amount(10.0)),
+                Transaction::Resolve(TxId(1)),
+                Transaction::Dispute(TxId(2)),
+                Transaction::Deposit(TxId(3), Amount(1.0)),
+                Transaction::Resolve(TxId(2)),
+            ];
+
+            let expected = Some(AccountState {
+                client_id,
+                available: Amount(111.0),
                 held: Amount(0.0),
                 locked: false
             });
